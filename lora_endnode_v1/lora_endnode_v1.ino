@@ -2,7 +2,9 @@
 #include <LoRa.h>
 #include "ModbusMaster.h"
 #include <BlynkSimpleEsp32.h>
+#include <ESP32Time.h>
 
+ESP32Time rtc;
 BlynkTimer timer;
 
 #define MAX485_RE_NEG  4
@@ -16,14 +18,17 @@ BlynkTimer timer;
 #define DI0     26
 #define BAND    923E6  //915E6
 
+uint8_t id = 0x01;
+uint8_t base = 0x00;
 
 uint8_t result;
 int t[2] = {};
 int counter = 0;
-ModbusMaster modbus;
+bool joined = false;
+unsigned long prvtime;
+unsigned long interval = 10*1000;
 
-uint8_t id = 0x01;
-uint8_t base = 0x00;
+ModbusMaster modbus;
 
 void preTransmission() {
   digitalWrite(MAX485_RE_NEG, HIGH); //Switch to transmit data
@@ -33,20 +38,45 @@ void postTransmission() {
   digitalWrite(MAX485_RE_NEG, LOW); //Switch to receive data
 }
 
+void joinGW() {  
+  char buff[7];
+  if (millis() - prvtime > interval) {
+    prvtime = millis();
+    sprintf(buff,"%02x%02x%02x", id, base, 0x01); // request to jon
+    Serial.print("..");Serial.println(buff);
+    Serial.println();
+    LoRa.beginPacket();
+      LoRa.print(buff); 
+    LoRa.endPacket();
+  }
+  
+  String tmp_string;
+  int packetSize = LoRa.parsePacket();
+  if (packetSize) {
+    while (LoRa.available()) {
+      tmp_string += (char)LoRa.read();  
+    }
+    int from = hex2int(tmp_string,0,2);
+    int dest = hex2int(tmp_string,2,2);
+    int fn = hex2int(tmp_string,4,2);
+    if (from == 0 && dest == id && fn == 2) {
+      joined = true;
+      unsigned long unix_timestamp = hex2int(tmp_string,6,8);
+      rtc.setTime(unix_timestamp);
+    }
+  }
+}
+
 void sendSensors() {
   modbus.readInputRegisters(1, 2);
   if (result == modbus.ku8MBSuccess) {
     t[0] = modbus.getResponseBuffer(0);
     t[1] = modbus.getResponseBuffer(1);
-    /*
-    Serial.print("Temp: ");Serial.println(t[0] /10.0);
-    Serial.print("Humi: ");Serial.println(t[1] /10.0);
-    */
+    //Serial.print("Temp: ");Serial.println(t[0] /10.0);Serial.print("Humi: ");Serial.println(t[1] /10.0);
   }
   
-  char buff[19];
-  int v3 = 291; //random(15,50);
-  sprintf(buff,"%02x%02x%02x%04x%04x%04x", id, base, 0x03, t[0], t[1], v3);
+  char buff[23];
+  sprintf(buff,"%02x%02x%02x%08x%04x%04x", id, base, 0x03, rtc.getEpoch(), t[0], t[1]);
   Serial.print("Sending_"); Serial.print(counter); Serial.print(": ");Serial.println(buff);
   Serial.println();
     
@@ -58,6 +88,12 @@ void sendSensors() {
   counter++;
 }
 
+unsigned long hex2int(String str, int start, int s) {
+    char buff[9];
+    String s_str = str.substring(start,start+s);
+    s_str.toCharArray(buff,9);
+    return (int) strtol(buff, 0, 16);
+}
 void setup() {
   //Serial.begin(115200);
   Serial.begin(9600, SERIAL_8N1);
@@ -80,6 +116,11 @@ void setup() {
     while (1);
   }
   Serial.println("LoRa Initial OK!");
+  Serial.println("Request to join!");
+  while(!joined) {
+    joinGW();
+  }
+  Serial.println("join done");
   timer.setInterval(3000L, sendSensors);
 }
 
@@ -117,13 +158,6 @@ void loop() {
   }
   
   timer.run();
-}
-
-int hex2int(String str, int start, int s) {
-    char buff[9];
-    String s_str = str.substring(start,start+s);
-    s_str.toCharArray(buff,9);
-    return (int) strtol(buff, 0, 16);
 }
 
 

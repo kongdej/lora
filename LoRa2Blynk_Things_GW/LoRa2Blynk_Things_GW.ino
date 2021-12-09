@@ -8,6 +8,15 @@
 #include <SPI.h>
 #include <LoRa.h>
 #include "SSD1306.h"
+#include <ThingsBoard.h>
+
+#define TOKEN "xFIDsmf35NN29CGZtJJ7"
+#define THINGSBOARD_SERVER  "mqtt.egat.co.th"
+
+WiFiClient espClient;
+ThingsBoard tb(espClient);
+
+bool debug = false;
 
 // Blynk
 #define BLYNK_TEMPLATE_ID "TMPLFAzXo6-B"
@@ -31,11 +40,16 @@ SSD1306  display(0x3c, 21, 22);
 
 time_t now_t;
 String currentTime;
-unsigned long syncClockTime = 3600*1000;  // broadcast time sync
+unsigned long syncClockTime = 60*1000;  // broadcast time sync
 unsigned long prevTime=0;
 unsigned long prevTimestamp[255];
 unsigned long currentTimestamp[255];
 
+bool subscribed = false;
+int led_delay = 1000;
+
+// Helper macro to calculate array size
+#define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
 void getNTP() {
    char buff[100];   
@@ -88,6 +102,61 @@ BLYNK_WRITE(V1) {
 }
 // ----------------------------
 
+void reconnect() {
+  int status = WiFi.status();
+  if ( status != WL_CONNECTED) {
+    WiFi.begin(ssid, password);
+    display.clear();
+    display.drawString(10, 0, "Reconnect Wifi..");
+    display.display();
+    while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    Serial.println("Connected to AP");
+    display.clear();
+    display.drawString(10, 0, "Connected to AP!");
+    display.display();
+    delay(3000);
+  }
+}
+
+RPC_Response processDelayChange(const RPC_Data &data) {
+  Serial.println("Received the set delay RPC method");
+  led_delay = data;
+  Serial.print("Set new delay: ");
+  Serial.println(led_delay);
+
+  return RPC_Response(NULL, led_delay);
+}
+
+RPC_Response processGetDelay(const RPC_Data &data) {
+  Serial.println("Received the get value method");
+
+  return RPC_Response(NULL, led_delay);
+}
+
+int st = 0;
+RPC_Response processCheckStatus(const RPC_Data &data) {
+  Serial.println("Received the get checkstatus");
+  return RPC_Response(NULL, st);
+}
+
+RPC_Response processSet(const RPC_Data &data) {
+  Serial.println("Set .");
+  st = data;
+  return RPC_Response(NULL, data);
+}
+
+
+RPC_Callback callbacks[] = {
+  { "setValue", processDelayChange },
+  { "getValue", processGetDelay },
+  { "checkStatus", processCheckStatus },
+  { "setValue1", processSet },
+  { "getValue1", processCheckStatus },
+};
+
 void setup() {
   Serial.begin(9600);
   
@@ -137,6 +206,7 @@ void setup() {
       }
     }
     display.drawString(10, 25, "Blynk connected!");
+    
     display.drawString(10, 45, "Waiting a packet..");
     display.display();
    
@@ -146,11 +216,11 @@ void setup() {
    sendTime();
 }
 
+
 void loop() {
   String tmp_string, tmp_rssi;
   char datastream[255];
  
-  
   // broadcast time sync
   if (millis() - prevTime > syncClockTime) {
     prevTime = millis();
@@ -161,14 +231,14 @@ void loop() {
   // Waiting for packets
   int packetSize = LoRa.parsePacket();
   if (packetSize) {
-    Serial.print("< Received packet @ "); Serial.println(now_t);
+    if (debug) {Serial.print("< Received packet @ "); Serial.println(now_t);}
     while (LoRa.available()) {
       tmp_string += (char)LoRa.read();  
     }
     
     getNTP();
     tmp_rssi = LoRa.packetRssi();
-    Serial.print("= "); Serial.print(tmp_string); Serial.println(" with RSSI " + tmp_rssi);
+    if (debug) { Serial.print("= "); Serial.print(tmp_string); Serial.println(" with RSSI " + tmp_rssi);}
     // get header 
     int from = hex2int(tmp_string,0,2);
     int dest = hex2int(tmp_string,2,2);
@@ -188,16 +258,17 @@ void loop() {
       currentTimestamp[from] = hex2int(tmp_string,6,8);
       float temp = hex2int(tmp_string,14,4)/10.0;
       float hum = hex2int(tmp_string,18,4)/10.0;
-      Serial.print("= Staion #1:");Serial.print(from);
-      Serial.print("-");Serial.print(dest);
-      Serial.print("-");Serial.print(fn);
-      Serial.print(",temp=");Serial.print(temp);
-      Serial.print(",hum=");Serial.print(hum);
+      if (debug) {
+        Serial.print("= Staion #1:");Serial.print(from);Serial.print("-");Serial.print(dest);Serial.print("-");Serial.print(fn);
+        Serial.print(",temp=");Serial.print(temp);Serial.print(",hum=");Serial.print(hum);
+      }
       display.drawString(0, 15, String(from) +  ": RSSI = "+tmp_rssi);
       //display.drawString(10, 37, "Temperature: " + String(temp));
       //display.drawString(10, 47, "Humidity: " + String(hum));
       Blynk.virtualWrite(V10,temp);
       Blynk.virtualWrite(V11,hum);
+      tb.sendTelemetryFloat("temperature", temp);
+      tb.sendTelemetryFloat("humidity", hum);
     }
     
     //node 2
@@ -205,8 +276,7 @@ void loop() {
       display.drawString(0, 25, String(from) +  ": RSSI = "+tmp_rssi+"          ");
       currentTimestamp[from] = hex2int(tmp_string,6,8); 
       int counter = hex2int(tmp_string,14,4);
-      Serial.print("Counter:");Serial.println(counter);
-      Serial.print("Timestamp:");Serial.println(currentTimestamp[from]);
+      if (debug) {Serial.print("Counter:");Serial.println(counter);Serial.print("Timestamp:");Serial.println(currentTimestamp[from]);}
       Blynk.virtualWrite(V0,counter);
       Blynk.virtualWrite(V99,currentTimestamp[from]);
       Blynk.virtualWrite(V100,tmp_rssi);
@@ -227,6 +297,34 @@ void loop() {
   display.display();
   tmp_string ="";
   tmp_rssi = ""; 
+
+  if (!tb.connected()) {
+    // Connect to the ThingsBoard
+    Serial.print("Connecting to: ");Serial.print(THINGSBOARD_SERVER);Serial.print(" with token ");Serial.println(TOKEN);
+    if (!tb.connect(THINGSBOARD_SERVER, TOKEN)) {
+      Serial.println("Failed to connect");
+      return;
+    }
+  }
+  
+  // Subscribe for RPC, if needed
+  if (!subscribed) {
+    Serial.println("Subscribing for RPC...");
+
+    if (!tb.RPC_Subscribe(callbacks, COUNT_OF(callbacks))) {
+      Serial.println("Failed to subscribe for RPC");
+      return;
+    }
+
+    Serial.println("Subscribe done");
+    subscribed = true;
+  }
+  
+  if (WiFi.status() != WL_CONNECTED) {
+    reconnect();
+    return;
+  }
+  tb.loop();
   
   Blynk.run();
 }
