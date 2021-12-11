@@ -10,7 +10,7 @@
 
 // Thing.egat.co.th -------------------------
 #define THINGSBOARD_SERVER  "mqtt.egat.co.th"
-#define TOKEN "xFIDsmf35NN29CGZtJJ7"
+#define TOKEN ""
 
 WiFiClient espClient;
 ThingsBoard tb(espClient);
@@ -20,8 +20,8 @@ ThingsBoard tb(espClient);
 #define BLYNK_PRINT Serial                         // Comment this out to disable prints and save space
 #define BLYNK_TEMPLATE_ID "TMPLFAzXo6-B"
 #define BLYNK_DEVICE_NAME "LoraGateway"
-char auth[] = "Zcu3M0ogYJo8QzEexSD9GB7PGY1achb2";  // Blynk token
-char blynk_host[] = "kongdej.trueddns.com";
+char auth[] = "";  // Blynk token
+char blynk_host[] = "";
 int blynk_port = 40949;
 
 BlynkTimer timer;
@@ -33,8 +33,8 @@ WidgetLED led3(V113);
 //---------------------------------------------
 
 // Wifi -------------------------------------
-const char* ssid       = "ZAB";
-const char* password   = "Gearman1";
+const char* ssid       = "";
+const char* password   = "";
 //-------------------------------------------
 
 // LoRa -------------------------------------
