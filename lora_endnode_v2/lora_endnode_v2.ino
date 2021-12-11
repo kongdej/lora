@@ -4,7 +4,6 @@
 #include <ESP32Time.h>
 
 ESP32Time rtc;
-
 BlynkTimer timer;
 
 #define SS      18
@@ -17,8 +16,9 @@ uint8_t base = 0x00;
 
 int counter = 0;
 bool joined = false;
+
+unsigned long interval = 3*1000;
 unsigned long prvtime;
-unsigned long interval = 10*1000;
 
 void sendSensors() {  
   char buff[19];
@@ -32,11 +32,10 @@ void sendSensors() {
 }
 
 void joinGW() {
-  
   char buff[7];
   if (millis() - prvtime > interval) {
     prvtime = millis();
-    sprintf(buff,"%02x%02x%02x", id, base, 0x01);
+    sprintf(buff,"%02x%02x%02x", id, base, 0x01); // request to jon
     Serial.print("..");Serial.println(buff);
     Serial.println();
     LoRa.beginPacket();
@@ -87,7 +86,7 @@ void setup() {
   }
   Serial.println("join done");
 
-  timer.setInterval(3000L, sendSensors);
+  timer.setInterval(60*1000L, sendSensors);
   
 }
 

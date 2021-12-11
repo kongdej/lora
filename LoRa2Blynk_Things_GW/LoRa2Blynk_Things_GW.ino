@@ -16,7 +16,7 @@
 WiFiClient espClient;
 ThingsBoard tb(espClient);
 
-bool debug = false;
+bool debug = true;
 
 // Blynk
 #define BLYNK_TEMPLATE_ID "TMPLFAzXo6-B"
@@ -27,7 +27,7 @@ char auth[] = BLYNK_AUTH_TOKEN;
 // Wifi 
 const char* ssid       = "ZAB";
 const char* password   = "Gearman1";
-const char* ntpServer = "pool.ntp.org";
+const char* ntpServer = "th.pool.ntp.org";
 const long  gmtOffset_sec = 7 * 3600;
 const int   daylightOffset_sec = 7 * 3600;
  
@@ -45,23 +45,28 @@ unsigned long prevTime=0;
 unsigned long prevTimestamp[255];
 unsigned long currentTimestamp[255];
 
+int nlive = 3*60;
 bool subscribed = false;
 int led_delay = 1000;
 
 // Helper macro to calculate array size
 #define COUNT_OF(x) ((sizeof(x)/sizeof(0[x])) / ((size_t)(!(sizeof(x) % sizeof(0[x])))))
 
+
 void getNTP() {
    char buff[100];   
    struct tm timeinfo;
-   
-   if (!getLocalTime(&timeinfo)) {
-     Serial.println("Failed to obtain time");
-     return;
+   while (1) {
+    if (!getLocalTime(&timeinfo)) {
+      Serial.println("Failed to obtain time");   
+    }
+    else {
+      sprintf(buff, "%02d-%02d-%4d %02d:%02d:%02d",timeinfo.tm_mday,timeinfo.tm_mon,timeinfo.tm_year+1900,timeinfo.tm_hour,timeinfo.tm_min,timeinfo.tm_sec);
+      currentTime = String(buff);
+      Serial.println(currentTime);
+      break;
+    }
    }
-   time(&now_t);
-   sprintf(buff, "%02d-%02d-%4d %02d:%02d:%02d",timeinfo.tm_mday,timeinfo.tm_mon,timeinfo.tm_year+1900,timeinfo.tm_hour,timeinfo.tm_min,timeinfo.tm_sec);
-   currentTime = String(buff);
  }
  
  void sendTime() {
@@ -143,9 +148,16 @@ RPC_Response processCheckStatus(const RPC_Data &data) {
 }
 
 RPC_Response processSet(const RPC_Data &data) {
-  Serial.println("Set .");
+  char buff[11];
+  Serial.print("Set relay ");
   st = data;
-  return RPC_Response(NULL, data);
+  Serial.println(st);
+  sprintf(buff,"%02x%02x%02x%02x%02x",0x00,0x01,0x04, 0x01, st);  // fn=0x04, write , relay 0x01 
+  Serial.print("> Send Write:");Serial.println(buff);
+  LoRa.beginPacket();
+    LoRa.print(buff); 
+  LoRa.endPacket();
+  return RPC_Response(NULL, st);
 }
 
 
@@ -235,8 +247,10 @@ void loop() {
     while (LoRa.available()) {
       tmp_string += (char)LoRa.read();  
     }
+
     
-    getNTP();
+    
+    //getNTP();
     tmp_rssi = LoRa.packetRssi();
     if (debug) { Serial.print("= "); Serial.print(tmp_string); Serial.println(" with RSSI " + tmp_rssi);}
     // get header 
@@ -245,9 +259,12 @@ void loop() {
     int fn   = hex2int(tmp_string,4,2);
 
     display.clear();
+    display.drawString(0, 50, tmp_string);
     display.setTextAlignment(TEXT_ALIGN_LEFT);
-    display.drawString(10, 0, currentTime);
     
+    display.drawString(10, 0, currentTime);
+    if (debug) Serial.println(currentTime);
+    if (debug) Serial.println(tmp_string);
      // request to join
     if (fn == 1) {
       joinNode(from);
@@ -283,12 +300,12 @@ void loop() {
     }
   }
   
-  if ((time(&now_t) - currentTimestamp[1]) > 5 && currentTimestamp[1] != 0) {
+  if ((time(&now_t) - currentTimestamp[1]) > nlive && currentTimestamp[1] != 0) {
     //display.clear();
     display.drawString(10, 0, currentTime);
     display.drawString(0, 15, +"1: **********");
   }
-  if ((time(&now_t) - currentTimestamp[2]) > 5 && currentTimestamp[2] != 0) {
+  if ((time(&now_t) - currentTimestamp[2]) > nlive && currentTimestamp[2] != 0) {
     //display.clear();
     display.drawString(10, 0, currentTime);
     display.drawString(0, 25, +"2: **********");

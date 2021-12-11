@@ -30,6 +30,8 @@ unsigned long interval = 10*1000;
 
 ModbusMaster modbus;
 
+int relay_01 = 2;
+ 
 void preTransmission() {
   digitalWrite(MAX485_RE_NEG, HIGH); //Switch to transmit data
 }
@@ -68,13 +70,14 @@ void joinGW() {
 }
 
 void sendSensors() {
+  /*
   modbus.readInputRegisters(1, 2);
   if (result == modbus.ku8MBSuccess) {
     t[0] = modbus.getResponseBuffer(0);
     t[1] = modbus.getResponseBuffer(1);
     //Serial.print("Temp: ");Serial.println(t[0] /10.0);Serial.print("Humi: ");Serial.println(t[1] /10.0);
   }
-  
+  */
   char buff[23];
   sprintf(buff,"%02x%02x%02x%08x%04x%04x", id, base, 0x03, rtc.getEpoch(), t[0], t[1]);
   Serial.print("Sending_"); Serial.print(counter); Serial.print(": ");Serial.println(buff);
@@ -105,7 +108,7 @@ void setup() {
   modbus.preTransmission(preTransmission);
   modbus.postTransmission(postTransmission);
   
-  pinMode(25, OUTPUT); //Send success, LED will bright 1 second
+  pinMode(relay_01, OUTPUT); 
   while (!Serial);
   
   Serial.println("LoRa Sender");
@@ -121,7 +124,7 @@ void setup() {
     joinGW();
   }
   Serial.println("join done");
-  timer.setInterval(3000L, sendSensors);
+  timer.setInterval(60*1000L, sendSensors);
 }
 
 void loop() {
@@ -133,7 +136,7 @@ void loop() {
       tmp_string += (char)LoRa.read();  
     }
     
-    
+    Serial.println(tmp_string);
     int from = hex2int(tmp_string,0,2);
     int dest = hex2int(tmp_string,2,2);
     int fn = hex2int(tmp_string,4,2);
@@ -148,9 +151,8 @@ void loop() {
     else if (from == 0 && dest == 1 && fn == 4) {
         int n   = hex2int(tmp_string,6,2);
         int cmd = hex2int(tmp_string,8,2);
-        Serial.print("command relay ");Serial.print(n); Serial.print('-');
-        Serial.print(cmd);
-        digitalWrite(25,HIGH);
+        Serial.print("command relay ");Serial.print(n); Serial.print('-');Serial.print(cmd);
+        digitalWrite(relay_01,cmd);
     }
     
     tmp_string ="";
